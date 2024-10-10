@@ -1,0 +1,15 @@
+{
+	"image": "mcr.microsoft.com/devcontainers/base:bookworm",
+
+	"features": {
+		"ghcr.io/devcontainers/features/go:1": {}
+	},
+
+	"containerEnv": {
+		"CGO_ENABLED": "0"
+	},
+
+	"capAdd": [
+		"CAP_NET_ADMIN"
+	]
+}
