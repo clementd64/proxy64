@@ -12,10 +12,10 @@ import (
 
 func http2httpsCmd(args []string) error {
 	cmd := flag.NewFlagSet("http2https", flag.ExitOnError)
-	port := cmd.Int("port", 80, "port to listen on")
+	addr := cmd.String("addr", ":80", "address to listen on")
 	cmd.Parse(args)
 
-	return http2https.Listen(*port)
+	return http2https.Listen(*addr)
 }
 
 func nat64Cmd(args []string) error {

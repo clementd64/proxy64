@@ -2,11 +2,10 @@ package http2https
 
 import (
 	"net/http"
-	"strconv"
 )
 
-func Listen(port int) error {
-	return http.ListenAndServe(":"+strconv.Itoa(port), http.HandlerFunc(handle))
+func Listen(addr string) error {
+	return http.ListenAndServe(addr, http.HandlerFunc(handle))
 }
 
 func handle(w http.ResponseWriter, r *http.Request) {
