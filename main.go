@@ -8,6 +8,7 @@ import (
 
 	"github.com/clementd64/proxy64/internal/http2https"
 	"github.com/clementd64/proxy64/internal/nat64"
+	"github.com/clementd64/proxy64/internal/sni"
 )
 
 func http2httpsCmd(args []string) error {
@@ -26,6 +27,14 @@ func nat64Cmd(args []string) error {
 	return nat64.Listen(*port)
 }
 
+func snidCmd(args []string) error {
+	cmd := flag.NewFlagSet("snid", flag.ExitOnError)
+	addr := cmd.String("addr", "0.0.0.0:443", "port to listen on")
+	cmd.Parse(args)
+
+	return sni.Listen(*addr)
+}
+
 func run(args []string) error {
 	if len(args) < 1 {
 		return errors.New("no command provided")
@@ -36,6 +45,8 @@ func run(args []string) error {
 		return http2httpsCmd(args[1:])
 	case "nat64":
 		return nat64Cmd(args[1:])
+	case "snid":
+		return snidCmd(args[1:])
 	default:
 		return errors.New("unknown command")
 	}
