@@ -42,11 +42,11 @@ func handleConn(c *net.TCPConn) {
 	defer c.Close()
 
 	addr := c.LocalAddr().(*net.TCPAddr)
-	ip := addr.IP[12:16]
+	ip := addr.IP[12:16].String()
 
-	slog.Info("connection", "src", c.RemoteAddr(), "dst", ip.String(), "dport", addr.Port)
+	slog.Info("connection", "src", c.RemoteAddr(), "dst", ip, "dport", addr.Port)
 
-	if err := utils.ProxyTCP(c, net.JoinHostPort(ip.String(), strconv.Itoa(addr.Port))); err != nil {
+	if err := utils.ProxyTCP(c, net.JoinHostPort(ip, strconv.Itoa(addr.Port))); err != nil {
 		slog.Error("failed to connect", "dst", ip, "dport", addr.Port, "err", err)
 	}
 }
