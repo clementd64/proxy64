@@ -9,30 +9,35 @@ import (
 	"github.com/clementd64/proxy64/internal/http2https"
 	"github.com/clementd64/proxy64/internal/nat64"
 	"github.com/clementd64/proxy64/internal/sni"
+	"github.com/clementd64/proxy64/internal/utils"
 )
 
-func http2httpsCmd(args []string) error {
-	cmd := flag.NewFlagSet("http2https", flag.ExitOnError)
-	addr := cmd.String("addr", ":80", "address to listen on")
-	cmd.Parse(args)
+var cmds = map[string]func(args []string) error{
+	"http2https": func(args []string) error {
+		cmd := flag.NewFlagSet("http2https", flag.ExitOnError)
+		addr := cmd.String("addr", ":80", "address to listen on")
+		cmd.Parse(args)
 
-	return http2https.Listen(*addr)
-}
+		return http2https.Listen(*addr)
+	},
 
-func nat64Cmd(args []string) error {
-	cmd := flag.NewFlagSet("nat64", flag.ExitOnError)
-	port := cmd.Int("port", 1337, "port to listen on")
-	cmd.Parse(args)
+	"nat64": func(args []string) error {
+		cmd := flag.NewFlagSet("nat64", flag.ExitOnError)
+		port := cmd.Int("port", 1337, "port to listen on")
+		cmd.Parse(args)
 
-	return nat64.Listen(*port)
-}
+		return nat64.Listen(*port)
+	},
 
-func snidCmd(args []string) error {
-	cmd := flag.NewFlagSet("snid", flag.ExitOnError)
-	addr := cmd.String("addr", "0.0.0.0:443", "port to listen on")
-	cmd.Parse(args)
+	"snid": func(args []string) error {
+		cmd := flag.NewFlagSet("snid", flag.ExitOnError)
+		addr := cmd.String("addr", "0.0.0.0:443", "port to listen on")
+		var allowed utils.IPv6List
+		cmd.Var(&allowed, "allow", "comma-separated list of allowed target ranges")
+		cmd.Parse(args)
 
-	return sni.Listen(*addr)
+		return sni.Listen(*addr, allowed)
+	},
 }
 
 func run(args []string) error {
@@ -40,16 +45,10 @@ func run(args []string) error {
 		return errors.New("no command provided")
 	}
 
-	switch args[0] {
-	case "http2https":
-		return http2httpsCmd(args[1:])
-	case "nat64":
-		return nat64Cmd(args[1:])
-	case "snid":
-		return snidCmd(args[1:])
-	default:
-		return errors.New("unknown command")
+	if cmd, ok := cmds[args[0]]; ok {
+		return cmd(args[1:])
 	}
+	return errors.New("unknown command")
 }
 
 func main() {
