@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-func Listen(ctx context.Context, log *slog.Logger, env func(string) string) error {
+func Run(ctx context.Context, log *slog.Logger, env func(string) string) error {
 	addr := env("HTTP2HTTPS_LISTEN")
 	if addr == "" {
 		log.InfoContext(ctx, "HTTP2HTTPS_LISTEN not set, skipping http2https service")
