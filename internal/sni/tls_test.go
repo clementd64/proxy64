@@ -54,13 +54,15 @@ func TestReadServerName(t *testing.T) {
 	}
 }
 
-func TestPeekServerNamePreservesReader(t *testing.T) {
+func TestPeekServerNameBuffersConsumedBytes(t *testing.T) {
 	t.Parallel()
 
 	record := tlsRecord(clientHello([]serverNameEntry{{nameType: 0, name: "example.com"}}, nil, false))
-	original := append(append([]byte(nil), record...), []byte("payload")...)
+	payload := []byte("payload")
+	original := append(append([]byte(nil), record...), payload...)
+	source := bytes.NewReader(original)
 
-	serverName, reader, err := peekServerName(bytes.NewReader(original))
+	serverName, reader, err := peekServerName(source)
 	if err != nil {
 		t.Fatalf("peekServerName() error = %v", err)
 	}
@@ -72,8 +74,16 @@ func TestPeekServerNamePreservesReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("io.ReadAll() error = %v", err)
 	}
-	if !bytes.Equal(got, original) {
-		t.Fatalf("peekServerName() reader returned %x, want %x", got, original)
+	if !bytes.Equal(got, record) {
+		t.Fatalf("peekServerName() reader returned %x, want %x", got, record)
+	}
+
+	got, err = io.ReadAll(source)
+	if err != nil {
+		t.Fatalf("io.ReadAll(source) error = %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("source reader returned %x, want %x", got, payload)
 	}
 }
 
