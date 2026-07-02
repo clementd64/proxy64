@@ -20,9 +20,9 @@ func Run(ctx context.Context, log *slog.Logger, env func(string) string) error {
 	var wg sync.WaitGroup
 
 	for name, run := range map[string]func(context.Context, *slog.Logger, func(string) string) error{
-		"http2https": http2https.Listen,
-		"nat64":      nat64.Listen,
-		"sni":        sni.Listen,
+		"http2https": http2https.Run,
+		"nat64":      nat64.Run,
+		"sni":        sni.Run,
 	} {
 		wg.Go(func() {
 			log := log.With("svc", name)

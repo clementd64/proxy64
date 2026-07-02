@@ -11,7 +11,7 @@ import (
 func peekServerName(reader io.Reader) (string, io.Reader, error) {
 	buffer := new(bytes.Buffer)
 	serverName := readServerName(io.TeeReader(reader, buffer))
-	return serverName, io.MultiReader(buffer, reader), nil
+	return serverName, buffer, nil
 }
 
 func readServerName(reader io.Reader) string {

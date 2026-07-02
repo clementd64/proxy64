@@ -2,7 +2,6 @@ package sni
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,7 +11,12 @@ import (
 	"github.com/clementd64/proxy64/internal/utils"
 )
 
-func Listen(ctx context.Context, log *slog.Logger, env func(string) string) error {
+type server struct {
+	allowed []*net.IPNet
+	prefix  net.IP
+}
+
+func Run(ctx context.Context, log *slog.Logger, env func(string) string) error {
 	addr := env("SNI_LISTEN")
 	if addr == "" {
 		log.InfoContext(ctx, "SNI_LISTEN not set, skipping sni service")
@@ -24,41 +28,30 @@ func Listen(ctx context.Context, log *slog.Logger, env func(string) string) erro
 		return fmt.Errorf("failed to parse SNI_ALLOWED_CIDRS: %w", err)
 	}
 
-	listener, err := net.Listen("tcp", addr)
+	_, prefix, err := net.ParseCIDR(strings.TrimSpace(env("SNI_PREFIX")))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to parse SNI_PREFIX: %w", err)
 	}
-	defer listener.Close()
 
-	go func() {
-		<-ctx.Done()
-		log.InfoContext(ctx, "Shutting down server")
-		listener.Close()
-	}()
-
-	log.InfoContext(ctx, "Starting server", "addr", addr)
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			return err
-		}
-		go handleConnection(ctx, log, conn, allowed)
+	server := &server{
+		allowed: allowed,
+		prefix:  prefix.IP,
 	}
+
+	return utils.ListenTCP(ctx, log, utils.TCPServer{
+		Network: "tcp4",
+		Addr:    addr,
+		Handler: server.handle,
+	})
 }
 
-func handleConnection(ctx context.Context, log *slog.Logger, clientConn net.Conn, allowed []net.IPNet) {
-	defer clientConn.Close()
-
+func (s *server) handle(ctx context.Context, log *slog.Logger, clientConn *net.TCPConn) {
 	if err := clientConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		log.ErrorContext(ctx, "failed to set read deadline", "err", err)
 		return
 	}
 
-	serverName, clientReader, err := peekServerName(clientConn)
+	serverName, bufferedHandshake, err := peekServerName(clientConn)
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read server name", "err", err)
 		return
@@ -74,30 +67,41 @@ func handleConnection(ctx context.Context, log *slog.Logger, clientConn net.Conn
 		return
 	}
 
-	backendAddr, err := resolveAllowedBackendAddr(ctx, serverName, allowed)
+	target, err := s.resolveTarget(ctx, serverName)
 	if err != nil {
 		log.ErrorContext(ctx, "server name is not allowed", "serverName", serverName, "err", err)
 		return
 	}
 
-	log.InfoContext(ctx, "connection", "src", clientConn.RemoteAddr(), "serverName", serverName, "dst", backendAddr)
+	log.InfoContext(ctx, "connection", "src", clientConn.RemoteAddr(), "serverName", serverName, "dst", target)
 
-	if err := utils.ProxyTCP(clientConn.(*net.TCPConn), backendAddr, clientReader); err != nil {
-		log.ErrorContext(ctx, "failed to connect", "dst", backendAddr, "err", err)
+	if err := utils.ProxyTCPFrom(ctx, clientConn, target, s.getSourceAddr(clientConn), bufferedHandshake); err != nil {
+		log.ErrorContext(ctx, "failed to connect", "dst", target, "err", err)
 	}
 }
 
-func resolveAllowedBackendAddr(ctx context.Context, serverName string, allowed []net.IPNet) (string, error) {
+func (s *server) getSourceAddr(conn *net.TCPConn) *net.TCPAddr {
+	tcpAddr := conn.RemoteAddr().(*net.TCPAddr)
+	addr := &net.TCPAddr{
+		IP:   make(net.IP, net.IPv6len),
+		Port: tcpAddr.Port,
+	}
+	copy(addr.IP, s.prefix)
+	copy(addr.IP[12:16], tcpAddr.IP.To4())
+	return addr
+}
+
+func (s *server) resolveTarget(ctx context.Context, serverName string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", serverName)
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip6", serverName)
 	if err != nil {
 		return "", err
 	}
 
 	for _, ip := range ips {
-		for _, cidr := range allowed {
+		for _, cidr := range s.allowed {
 			if cidr.Contains(ip) {
 				return net.JoinHostPort(ip.String(), "443"), nil
 			}
@@ -107,8 +111,8 @@ func resolveAllowedBackendAddr(ctx context.Context, serverName string, allowed [
 	return "", fmt.Errorf("no resolved IP for %q is in allowed ranges", serverName)
 }
 
-func parseAllowedCIDRs(value string) ([]net.IPNet, error) {
-	var allowed []net.IPNet
+func parseAllowedCIDRs(value string) ([]*net.IPNet, error) {
+	var allowed []*net.IPNet
 
 	for _, part := range strings.Split(value, ",") {
 		_, ip, err := net.ParseCIDR(strings.TrimSpace(part))
@@ -120,7 +124,7 @@ func parseAllowedCIDRs(value string) ([]net.IPNet, error) {
 			return nil, fmt.Errorf("not an IPv6 address: %s", part)
 		}
 
-		allowed = append(allowed, *ip)
+		allowed = append(allowed, ip)
 	}
 
 	return allowed, nil
