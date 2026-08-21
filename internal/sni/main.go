@@ -12,14 +12,16 @@ import (
 )
 
 type server struct {
-	allowed []*net.IPNet
-	prefix  net.IP
+	allowed  []*net.IPNet
+	prefix   net.IP
+	listenIP net.IP
 }
 
 func Run(ctx context.Context, log *slog.Logger, env func(string) string) error {
-	addr := env("SNI_LISTEN")
-	if addr == "" {
-		log.InfoContext(ctx, "SNI_LISTEN not set, skipping sni service")
+	addrValue := strings.TrimSpace(env("SNI_ADDR"))
+	portValue := strings.TrimSpace(env("SNI_PORT"))
+	if addrValue == "" && portValue == "" {
+		log.InfoContext(ctx, "SNI_ADDR and SNI_PORT not set, skipping sni service")
 		return nil
 	}
 
@@ -34,13 +36,14 @@ func Run(ctx context.Context, log *slog.Logger, env func(string) string) error {
 	}
 
 	server := &server{
-		allowed: allowed,
-		prefix:  prefix.IP,
+		allowed:  allowed,
+		prefix:   prefix.IP,
+		listenIP: net.ParseIP(addrValue),
 	}
 
 	return utils.ListenTCP(ctx, log, utils.TCPServer{
 		Network: "tcp4",
-		Addr:    addr,
+		Addr:    net.JoinHostPort(addrValue, portValue),
 		Handler: server.handle,
 	})
 }
@@ -95,9 +98,25 @@ func (s *server) resolveTarget(ctx context.Context, serverName string) (string, 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip6", serverName)
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", serverName)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to resolve A records for %q: %w", serverName, err)
+	}
+
+	pointsToListener := false
+	for _, ip := range ips {
+		if ip.Equal(s.listenIP) {
+			pointsToListener = true
+			break
+		}
+	}
+	if !pointsToListener {
+		return "", fmt.Errorf("A records for %q do not point to SNI_ADDR %s", serverName, s.listenIP)
+	}
+
+	ips, err = net.DefaultResolver.LookupIP(ctx, "ip6", serverName)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve AAAA records for %q: %w", serverName, err)
 	}
 
 	for _, ip := range ips {
